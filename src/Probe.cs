@@ -1,0 +1,253 @@
+using System;
+using System.Text;
+
+namespace MaydayCallouts
+{
+    /// <summary>
+    /// 探测模式核心：观察游戏告警体系，画出"声音层 vs 通知层"覆盖图。
+    ///
+    /// 观察对象（全部只读，不干预）：
+    ///   - WarningPanel：LastCallout / calloutNames / calloutHeights /
+    ///     MinimumsHeight / audioSource.isPlaying / stallLoop / gearHornTimer /
+    ///     overspeedTimer —— 游戏自己的 GPWS/呼话/告警系统
+    ///   - 发动机：fire / faults 位图 / state（Mayday.Systems.EngineUnit）
+    ///   - 燃油：FuelSystem.tank[] 百分比
+    ///   - 机体：HullSystem 破洞数
+    ///   - Chaos 事件：ChaosEvents.Active / LastId
+    ///
+    /// 输出原则：只在"变化"时打日志（快照式），每 250ms 轮询一次。
+    /// </summary>
+    internal static class Probe
+    {
+        static global::Mayday.Flight.WarningPanel _panel;
+        static bool _panelDumped;
+
+        // 上一次快照（变化检测）
+        static string _lastCallout = "";     // 游戏呼话名
+        static string _lastAudioState = "";  // 驾驶舱音频播放状态
+        static string _lastStage = "";
+        static string _lastChaos = "";       // Chaos 事件 / 借用为告警计时器状态
+
+        static ushort[] _lastEngineFaults = new ushort[4];
+        static string[] _lastEngineState = new string[4];
+        static bool[] _lastEngineFire = new bool[4];
+        static float[] _lastFuelPct = new float[2] { -1f, -1f };
+        static int _lastHoles = -1;
+        static global::UnityEngine.AudioSource _panelAudio;
+
+        static float _nextPoll;
+
+        public static void Init()
+        {
+            if (!Plugin.Probe.Value) Plugin.LogSource.LogInfo("[MaydayCallouts] 探测模式未启用（Probe=false）");
+        }
+
+        static bool Ready => Plugin.Probe.Value && global::Mayday.GameState.Instance != null;
+
+        public static void Tick()
+        {
+            if (!Ready) return;
+            float t = UnityEngine.Time.unscaledTime;
+            if (t < _nextPoll) return;
+            _nextPoll = t + 0.25f;
+
+            try { PollPanel(); } catch { }
+            try { PollEngines(); } catch { }
+            try { PollFuel(); } catch { }
+            try { PollHull(); } catch { }
+            // Chaos 事件走 Harmony 后缀（OnChaos），这里不再轮询
+        }
+
+        // ---------- WarningPanel：游戏自己的 GPWS/呼话系统 ----------
+
+        static void PollPanel()
+        {
+            if (_panel == null)
+            {
+                _panel = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.WarningPanel>();
+                if (_panel == null) return;
+            }
+
+            if (!_panelDumped)
+            {
+                _panelDumped = true;
+                var sb = new StringBuilder("[MaydayCallouts] WarningPanel 转储: ");
+                try
+                {
+                    // MinimumsHeight / calloutNames / calloutHeights 是静态配置字段
+                    sb.Append("MinimumsHeight=").Append(global::Mayday.Flight.WarningPanel.MinimumsHeight);
+                    var names = global::Mayday.Flight.WarningPanel.calloutNames;
+                    sb.Append(" calloutNames=[");
+                    if (names != null)
+                        for (int i = 0; i < names.Length; i++)
+                            sb.Append(i > 0 ? ", " : "").Append(names[i]);
+                    sb.Append("]");
+                    var heights = global::Mayday.Flight.WarningPanel.calloutHeights;
+                    sb.Append(" calloutHeights=[");
+                    if (heights != null)
+                        for (int i = 0; i < heights.Length; i++)
+                            sb.Append(i > 0 ? ", " : "").Append(heights[i].ToString("F1"));
+                    sb.Append("]");
+                }
+                catch (Exception e) { sb.Append("（部分字段读取失败: ").Append(e.Message).Append("）"); }
+                Plugin.LogSource.LogInfo(sb.ToString());
+            }
+
+            try
+            {
+                string lc = global::Mayday.Flight.WarningPanel.LastCallout;
+                if (!string.IsNullOrEmpty(lc) && lc != _lastCallout)
+                {
+                    _lastCallout = lc;
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 游戏呼话触发: " + lc);
+                }
+            }
+            catch { }
+
+            try
+            {
+                // WarningPanel.audioSource 字段是 Transform（音频的定位点），
+                // 真正的播放器从同一个 GameObject 上取
+                if (_panelAudio == null)
+                {
+                    var src = _panel.audioSource != null
+                        ? _panel.audioSource.gameObject.GetComponent<UnityEngine.AudioSource>()
+                        : null;
+                    _panelAudio = src;
+                }
+                if (_panelAudio != null)
+                {
+                    bool playing = _panelAudio.isPlaying;
+                    string clip = "";
+                    try { if (playing && _panelAudio.clip != null) clip = _panelAudio.clip.name; } catch { }
+                    string st = playing ? "播放中 clip=" + clip : "静默";
+                    if (st != _lastAudioState)
+                    {
+                        Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱音频: " + st);
+                        _lastAudioState = st;
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                float gearHorn = _panel.gearHornTimer;
+                float over = _panel.overspeedTimer;
+                float stall = _panel.stallLoop;
+                string st = "gear=" + (gearHorn > 0f) + " over=" + (over > 0f) + " stall=" + (stall > 0f);
+                if (st != _lastChaos) // 借用：状态翻转才打一条
+                {
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱告警状态: " + st);
+                    _lastChaos = st;
+                }
+            }
+            catch { }
+        }
+
+        // ---------- 发动机 ----------
+
+        static void PollEngines()
+        {
+            var arr = UnityEngine.Object.FindObjectsOfType<global::Mayday.Systems.EngineUnit>();
+            if (arr == null) return;
+            for (int i = 0; i < arr.Length && i < 4; i++)
+            {
+                var e = arr[i];
+                if (e == null) continue;
+                try
+                {
+                    bool fire = e.fire > 0.01f;
+                    ushort faults = e.faults;
+                    string state = e.state.ToString();
+                    bool changed = fire != _lastEngineFire[i] || faults != _lastEngineFaults[i] || state != _lastEngineState[i];
+                    if (changed)
+                    {
+                        Plugin.LogSource.LogInfo(string.Format(
+                            "[MaydayCallouts] 发动机#{0} 状态变化: fire={1:F2} faults=0x{2:X4} state={3}",
+                            i, e.fire, faults, state));
+                        _lastEngineFire[i] = fire;
+                        _lastEngineFaults[i] = faults;
+                        _lastEngineState[i] = state;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        // ---------- 燃油（跨过 20% 阈值才记录） ----------
+
+        static void PollFuel()
+        {
+            var fs = UnityEngine.Object.FindObjectOfType<global::Mayday.Systems.FuelSystem>();
+            if (fs == null) return;
+            try
+            {
+                float cap = Math.Max(1f, fs.capacity);
+                float l = fs.tank != null && fs.tank.Length > 0 ? fs.tank[0] : 0f;
+                float r = fs.tank != null && fs.tank.Length > 1 ? fs.tank[1] : 0f;
+                float lp = l / cap * 100f, rp = r / cap * 100f;
+                for (int i = 0; i < 2; i++)
+                {
+                    float pct = i == 0 ? lp : rp;
+                    float last = _lastFuelPct[i];
+                    if (last < 0f) { _lastFuelPct[i] = pct; continue; }
+                    // 跨过 20% 或 5%（临界）才打
+                    bool crossed = (last > 20f && pct <= 20f) || (last > 5f && pct <= 5f);
+                    if (crossed)
+                        Plugin.LogSource.LogInfo(string.Format(
+                            "[MaydayCallouts] 燃油阈值跨越: {0}箱 {1:F0}%（剩余 {2:F1}L）",
+                            i == 0 ? "左" : "右", pct, i == 0 ? l : r));
+                    _lastFuelPct[i] = pct;
+                }
+            }
+            catch { }
+        }
+
+        // ---------- 机体（破洞数变化） ----------
+
+        static void PollHull()
+        {
+            var hs = UnityEngine.Object.FindObjectOfType<global::Mayday.Systems.HullSystem>();
+            if (hs == null) return;
+            try
+            {
+                int holes = hs.holes != null ? hs.holes.Count : 0;
+                if (_lastHoles >= 0 && holes != _lastHoles)
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 机体破洞数变化: " + _lastHoles + " -> " + holes);
+                if (holes != _lastHoles) _lastHoles = holes;
+            }
+            catch { }
+        }
+
+        // ---------- 阶段 / Chaos / 通知 ----------
+
+        public static void OnStage(global::Mayday.Airport.DirectorStage stage)
+        {
+            string s = stage.ToString();
+            if (s == _lastStage) return;
+            _lastStage = s;
+            if (Ready) Plugin.LogSource.LogInfo("[MaydayCallouts] 阶段切换 -> " + s);
+        }
+
+        public static void OnChaos(string id, bool began)
+        {
+            string tag = (began ? "开始" : "结束") + ": " + id;
+            if (tag == _lastChaos) return;
+            _lastChaos = tag;
+            Plugin.LogSource.LogInfo("[MaydayCallouts] Chaos 事件" + tag);
+        }
+
+        public static void OnNotify(string key, global::Mayday.NotifyKind kind, Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray args)
+        {
+            // 通知原文 = 本地化后的文本（游戏自己的 UI 会渲染它）；
+            // 探测只记 key 和 kind —— key 就是告警的"身份证"
+            Plugin.LogSource.LogInfo("[MaydayCallouts] 通知: kind=" + kind + " key=" + key);
+        }
+
+        public static void OnAlert(string key, double deadline, byte level)
+        {
+            Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱警示: level=" + level + " key=" + key + " deadline=" + deadline.ToString("F1"));
+        }
+    }
+}
