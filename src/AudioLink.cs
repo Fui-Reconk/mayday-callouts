@@ -58,6 +58,7 @@ namespace MaydayCallouts
             }
 
             PollTestKey();
+            PollSelfTest();
         }
 
         /// <summary>把 SoundBank 注册的全部音效 id 打进日志（定义未加载时不置完成位，等下次轮询）。</summary>
@@ -96,6 +97,7 @@ namespace MaydayCallouts
         }
 
         static float _nextTestAllowed;
+        static float _nextSelfTest;
 
         static void PollTestKey()
         {
@@ -117,6 +119,22 @@ namespace MaydayCallouts
             {
                 Plugin.LogSource.LogWarning("[MaydayCallouts] Play2D 试听失败: " + e.Message);
             }
+        }
+
+        /// <summary>自测键：按 O 播 mod 自己的告警音（master_caution），定位播放链是否出声。</summary>
+        static void PollSelfTest()
+        {
+            try
+            {
+                var kb = UnityEngine.InputSystem.Keyboard.current;
+                if (kb != null && kb.oKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextSelfTest)
+                {
+                    _nextSelfTest = UnityEngine.Time.unscaledTime + 0.5f;
+                    AudioPack.PlayOnce("master_caution");
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 自测播放: master_caution（按 O，mod 音源路径）");
+                }
+            }
+            catch { }
         }
     }
 }

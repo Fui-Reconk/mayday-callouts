@@ -6,14 +6,15 @@ namespace MaydayCallouts
     /// 高度呼话引擎：按游戏的 calloutHeights 表（100/80/60/40/30/20/10 + Minimums 60）
     /// 在下降穿越各高度时播放 callout_XXX 音效。
     ///
-    /// 判据全部来自游戏自己的数据：
-    ///   - 离地高度 AGL = PlaneFlight.GroundProbeAgl（游戏每帧自算的静态字段）
-    ///   - 下降方向 = PlaneFlight.lastRenderVel.y < 0
-    ///   - 高度表 = WarningPanel.calloutHeights（静态，游戏自己的配置）
-    ///   - 音效名 = WarningPanel.calloutNames（"100"/"80"/"60"/"40"/"30"/"20"/"10"）
-    /// 所以单位/阈值与游戏内部完全一致，无需标定。
+    /// 离地高度 AGL 的来源（实测教训）：
+    ///   PlaneFlight.GroundProbeAgl 不可用 —— 探针实测恒定 22.5 不随飞行变化
+    ///  （只在游戏内部特定时机刷新），导致呼话在同一瞬间全部引爆。
+    ///   正确来源：plane.transform.position.y − initialParkPos.y
+    ///  （飞机在机场停放时的原点高度，PlaneFlight 自带字段）——
+    ///   停在地面时为 0，飞行即离地高度，单位与世界坐标一致。
     ///
     /// 一次性门闩：每个高度只报一次，重新爬升到高度表最大值以上后整组复位。
+    /// 呼话最小间隔 1.2s：防止异常跳变时多条同帧齐爆（真机呼话一次只报一个）。
     ///
     /// 音源文件（Audio 目录，缺失自动跳过）：
     ///   callout_100 / callout_80 / callout_60 / callout_40 / callout_30 /
@@ -28,16 +29,20 @@ namespace MaydayCallouts
     {
         static global::Mayday.Flight.PlaneFlight _pf;
         static bool _pfMissing;
+        static float _parkY = float.MinValue; // 机场地面高度（initialParkPos.y）
 
         static bool[] _latched;                 // 每个呼话高度的门闩
         static bool _minimumsLatched = true;    // Minimums 默认已报（起飞状态）
         static bool _gpwsSinkLatched;
         static float _gpwsPullupNext;
+        static float _nextCalloutAllowed;       // 呼话最小间隔（1.2s）
+
+        static int[] _heightsCache;             // 呼话高度表快照
 
         public static void Tick()
         {
             if (!Plugin.Callouts.Value) return;
-            if (AudioPack.Loaded != true) return;
+            if (!AudioPack.Loaded) return;
             if (global::Mayday.GameState.Instance == null) return;
 
             try
@@ -49,7 +54,23 @@ namespace MaydayCallouts
                     if (_pf == null) { _pfMissing = true; return; }
                 }
 
-                float agl = global::Mayday.Flight.PlaneFlight.GroundProbeAgl;
+                // AGL = 飞机当前高度 − 机场停放高度（飞机在地面时差值≈0）
+                try
+                {
+                    var ip = _pf.initialParkPos;
+                    if (ip != null && (Math.Abs(ip.y - _parkY) > 0.5f || _parkY == float.MinValue))
+                    {
+                        if (_parkY != float.MinValue) ResetAll(); // 换机场：整组复位
+                        _parkY = ip.y;
+                    }
+                }
+                catch { }
+                if (_parkY == float.MinValue) return;
+
+                float agl;
+                try { agl = _pf.transform.position.y - _parkY; }
+                catch { return; }
+
                 float velY = 0f;
                 try { velY = _pf.lastRenderVel.y; } catch { }
                 bool descending = velY < -0.5f;
@@ -59,14 +80,17 @@ namespace MaydayCallouts
                 if (names == null || heights == null) return;
 
                 int n = Math.Min(names.Length, heights.Length);
-                if (_latched == null || _latched.Length != n) _latched = new bool[n];
+                if (_latched == null || _latched.Length != n || _heightsCache == null || !HeightsEqual(heights, n))
+                {
+                    _latched = new bool[n];
+                    _heightsCache = new int[n];
+                    for (int i = 0; i < n; i++) { try { _heightsCache[i] = heights[i]; } catch { _heightsCache[i] = 0; } }
+                }
 
                 // 爬回最高呼话高度以上 → 整组复位
                 if (agl > heights[0] + 40f)
                 {
-                    for (int i = 0; i < n; i++) _latched[i] = false;
-                    _minimumsLatched = false;
-                    _gpwsSinkLatched = false;
+                    ResetAll();
                     return;
                 }
 
@@ -78,6 +102,8 @@ namespace MaydayCallouts
                     if (agl <= heights[i])
                     {
                         _latched[i] = true;
+                        if (UnityEngine.Time.unscaledTime < _nextCalloutAllowed) continue; // 间隔保护（门闩已置位）
+                        _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
                         string soundName = "callout_" + SafeName(names, i);
                         AudioPack.PlayOnce(soundName);
                         Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: " + soundName + "（AGL=" + agl.ToString("F0") + "）");
@@ -88,8 +114,12 @@ namespace MaydayCallouts
                 if (!_minimumsLatched && agl <= global::Mayday.Flight.WarningPanel.MinimumsHeight)
                 {
                     _minimumsLatched = true;
-                    AudioPack.PlayOnce("callout_minimums");
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: callout_minimums（AGL=" + agl.ToString("F0") + "）");
+                    if (UnityEngine.Time.unscaledTime >= _nextCalloutAllowed)
+                    {
+                        _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
+                        AudioPack.PlayOnce("callout_minimums");
+                        Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: callout_minimums（AGL=" + agl.ToString("F0") + "）");
+                    }
                 }
 
                 // GPWS 替换（可选）：大下降率
@@ -110,6 +140,24 @@ namespace MaydayCallouts
                 }
             }
             catch { }
+        }
+
+        static void ResetAll()
+        {
+            if (_latched != null) for (int i = 0; i < _latched.Length; i++) _latched[i] = false;
+            _minimumsLatched = false;
+            _gpwsSinkLatched = false;
+        }
+
+        static bool HeightsEqual(Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStructArray<int> current, int n)
+        {
+            try
+            {
+                if (_heightsCache == null) return false;
+                for (int i = 0; i < n; i++) if (_heightsCache[i] != current[i]) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         /// <summary>GpwsReplace=true 时屏蔽游戏自带的 gpws_pullup（由 mod 的真实音源接管）。</summary>

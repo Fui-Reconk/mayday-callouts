@@ -295,6 +295,13 @@ namespace MaydayCallouts
                 if (_pfCached == null) return;
 
                 float agl = global::Mayday.Flight.PlaneFlight.GroundProbeAgl;
+                float parkAgl = 0f;
+                try
+                {
+                    var ip = _pfCached.initialParkPos;
+                    if (ip != null) parkAgl = _pfCached.transform.position.y - ip.y;
+                }
+                catch { }
                 float vy = 0f;
                 try { vy = _pfCached.lastRenderVel.y; } catch { }
 
@@ -303,7 +310,7 @@ namespace MaydayCallouts
                 {
                     _nextAglLog = now + 1f;
                     _lastLoggedAgl = agl;
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] AGL=" + agl.ToString("F1") + " vy=" + vy.ToString("F1"));
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] AGL=" + agl.ToString("F1") + " parkAGL=" + parkAgl.ToString("F1") + " vy=" + vy.ToString("F1"));
                 }
             }
             catch { }
