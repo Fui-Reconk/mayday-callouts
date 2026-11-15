@@ -305,7 +305,10 @@ namespace MaydayCallouts
                 {
                     _nextAglLog = now + 1f;
                     _lastLoggedAgl = fsAgl;
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] probeAGL=" + agl.ToString("F1") + " fsAGL=" + fsAgl.ToString("F1") + " vy=" + vy.ToString("F1"));
+                    float gearPos = -1f; bool gearCmd = false;
+                    try { var sim = _pfCached.sim; if (sim != null) gearPos = sim.GearPos; } catch { }
+                    try { gearCmd = _pfCached.gearDownCmd; } catch { }
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] probeAGL=" + agl.ToString("F1") + " fsAGL=" + fsAgl.ToString("F1") + " vy=" + vy.ToString("F1") + " gearPos=" + gearPos.ToString("F2") + " gearCmd=" + gearCmd);
                 }
             }
             catch { }

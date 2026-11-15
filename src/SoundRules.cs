@@ -152,7 +152,11 @@ namespace MaydayCallouts
             }
 
             // RETARD 呼话（进近末段，A320 落地收油门提醒）
-            if (_retardArmed && agl < 15f && vy < -0.5f && !_retardLatched)
+            // 现实条件：起落架已放下（gearDownCmd = 降落意图）——
+            // 轮没收还往下冲那是 TOO LOW GEAR 的活，不报 RETARD
+            bool gearDown = false;
+            try { if (_pf != null) gearDown = _pf.gearDownCmd; } catch { }
+            if (_retardArmed && agl < 15f && vy < -0.5f && gearDown && !_retardLatched)
             {
                 _retardLatched = true;
                 AudioPack.Play("callout_retard");
