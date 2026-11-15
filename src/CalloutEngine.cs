@@ -34,6 +34,7 @@ namespace MaydayCallouts
         static bool[] _latched;                 // 每个呼话高度的门闩
         static bool _minimumsLatched = true;    // Minimums 默认已报（起飞状态）
         static bool _gpwsSinkLatched;
+        static bool _gpwsPullupLatched;
         static float _gpwsPullupNext;
         static float _nextCalloutAllowed;       // 呼话最小间隔（1.2s）
 
@@ -122,18 +123,21 @@ namespace MaydayCallouts
                     }
                 }
 
-                // GPWS 替换（可选）：大下降率
+                // GPWS 替换（可选）：大下降率，带升级链（sink_rate → pull_up）。
+                // 拉平（vy 回升）后自动复位，可再次触发。触发时带 AGL/vy 日志供标定。
                 if (Plugin.GpwsReplace.Value)
                 {
-                    if (agl < 150f && velY < -10f && !_gpwsSinkLatched)
+                    if (velY > -2f) _gpwsSinkLatched = false;
+                    if (velY > -3f) _gpwsPullupLatched = false;
+                    if (velY < -5f && agl < 400f && !_gpwsSinkLatched)
                     {
                         _gpwsSinkLatched = true;
                         AudioPack.PlayOnce("gpws_sink_rate");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: sink_rate（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
-                    if (agl < 100f && velY < -16f && UnityEngine.Time.unscaledTime >= _gpwsPullupNext)
+                    if (velY < -9f && agl < 400f && !_gpwsPullupLatched)
                     {
-                        _gpwsPullupNext = UnityEngine.Time.unscaledTime + 3f;
+                        _gpwsPullupLatched = true;
                         AudioPack.PlayOnce("gpws_pull_up");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: pull_up（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
