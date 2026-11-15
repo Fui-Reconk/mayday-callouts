@@ -88,29 +88,34 @@ namespace MaydayCallouts
 
                 if (!descending) return;
 
+                // MINIMUMS（决断高，60）：现实规则——决断高优先于同值的高度呼话
+                //（A320 在 DH 只报 "MINIMUMS"，不再报 "60"），且每次进近必响。
+                // 之前它和 callout_60 同帧触发、被 1.2s 间隔保护拦掉且被永久
+                // 闩住 —— 永远哑火。现在独立门闩 + 独立播放，并跳过同值呼话。
+                bool minimumsJustPlayed = false;
+                if (!_minimumsLatched && agl <= global::Mayday.Flight.WarningPanel.MinimumsHeight)
+                {
+                    _minimumsLatched = true;
+                    _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
+                    AudioPack.Play("callout_minimums");
+                    minimumsJustPlayed = true;
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: callout_minimums（AGL=" + agl.ToString("F0") + "）");
+                }
+
                 for (int i = 0; i < n; i++)
                 {
                     if (_latched[i]) continue;
                     if (agl <= heights[i])
                     {
                         _latched[i] = true;
+                        // 决断高与该呼话同值且 MINIMUMS 刚播过 → 跳过同值呼话（现实规则）
+                        bool isMinimumsHeight = Math.Abs(heights[i] - global::Mayday.Flight.WarningPanel.MinimumsHeight) < 1;
+                        if (minimumsJustPlayed && isMinimumsHeight) continue;
                         if (UnityEngine.Time.unscaledTime < _nextCalloutAllowed) continue; // 间隔保护（门闩已置位）
                         _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
                         string soundName = "callout_" + SafeName(names, i);
                         AudioPack.Play(soundName);
                         Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: " + soundName + "（AGL=" + agl.ToString("F0") + "）");
-                    }
-                }
-
-                // Minimums（决断高，60）：独立门闩
-                if (!_minimumsLatched && agl <= global::Mayday.Flight.WarningPanel.MinimumsHeight)
-                {
-                    _minimumsLatched = true;
-                    if (UnityEngine.Time.unscaledTime >= _nextCalloutAllowed)
-                    {
-                        _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
-                        AudioPack.Play("callout_minimums");
-                        Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: callout_minimums（AGL=" + agl.ToString("F0") + "）");
                     }
                 }
 
