@@ -37,6 +37,10 @@ namespace MaydayCallouts
         static bool _gpwsPullupLatched;
         static float _gpwsPullupNext;
         static float _nextCalloutAllowed;       // 呼话最小间隔（1.2s）
+        static float _lastPullUpPlay;           // 最近一次 Pull Up 播放（优先级仲裁用）
+
+        /// <summary>最近一次 Pull Up 语音的时间戳（给低优先级告警让位用）。</summary>
+        public static float LastGpwsPullUp => _lastPullUpPlay;
 
         static int[] _heightsCache;             // 呼话高度表快照
 
@@ -125,6 +129,7 @@ namespace MaydayCallouts
                     if (velY < -9f && agl < 400f && !_gpwsPullupLatched)
                     {
                         _gpwsPullupLatched = true;
+                        _lastPullUpPlay = UnityEngine.Time.unscaledTime;
                         AudioPack.Play("gpws_pull_up");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: pull_up（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }

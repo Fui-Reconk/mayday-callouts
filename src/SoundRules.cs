@@ -103,11 +103,41 @@ namespace MaydayCallouts
             try { gear = _panel.gearHornTimer > 0; } catch { }
             try { over = _panel.overspeedTimer > 0; } catch { }
 
-            // 循环类：条件持续期间每轮 Play（cooldown 吞掉多余触发）
+            // 失速：连续喇叭（现实失速警告就是连续音响，独立于 GPWS 语音）
             if (stall) AudioPack.Play("stall_horn");
-            if (gear) AudioPack.Play("gear_horn");
+
+            // 超速：连续抖杆（现实 overspeed clacker 同为连续）
             if (over) AudioPack.Play("overspeed");
+
+            // 起落架：现实 GPWS Mode 4 —— "TOO LOW - GEAR" 语音，
+            // 条件持续期间每 4.5s 重报一次（不是连续循环），
+            // 且让位给更急的 Pull Up（GPWS 同时只播一条最急语音）。
+            if (Plugin.AlarmGear.Value)
+            {
+                bool pullUpBusy = CalloutEngine.LastGpwsPullUp >= UnityEngine.Time.unscaledTime - 4f;
+                if (gear && !pullUpBusy)
+                {
+                    if (!_gearVoiceLatched && UnityEngine.Time.unscaledTime >= _nextGearVoice)
+                    {
+                        _nextGearVoice = UnityEngine.Time.unscaledTime + 4.5f;
+                        if (AudioPack.Has("gpws_too_low_gear"))
+                        {
+                            AudioPack.Play("gpws_too_low_gear");
+                            Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: TOO LOW - GEAR（Mode 4 语音）");
+                        }
+                        else
+                            AudioPack.Play("gear_horn"); // 没有语音文件时回退合成喇叭
+                    }
+                }
+                else if (!gear)
+                {
+                    _gearVoiceLatched = false; // 改出（放起落架/爬升）后复位，下次再报
+                }
+            }
         }
+
+        static bool _gearVoiceLatched;
+        static float _nextGearVoice;
 
         static void PollEngines()
         {

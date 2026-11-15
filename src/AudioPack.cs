@@ -154,6 +154,12 @@ namespace MaydayCallouts
                 Plugin.LogSource.LogWarning("[MaydayCallouts] 没有新注册的音效（可能已注册过）");
         }
 
+        /// <summary>音效是否已注册（存在对应音频文件）。</summary>
+        public static bool Has(string name)
+        {
+            return _registered && _clips.ContainsKey(name);
+        }
+
         /// <summary>
         /// 播放自制音效（走游戏 Play2D 管线）。循环类告警在条件持续期间
         /// 每 250ms 重触发一次，def.cooldown 会吞掉多余的触发。
