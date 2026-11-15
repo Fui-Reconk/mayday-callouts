@@ -25,7 +25,7 @@ namespace MaydayCallouts
     {
         public const string Guid = "local.mayday.callouts";
         public const string Name = "Mayday Callouts";
-        public const string Version = "0.2.0";
+        public const string Version = "0.3.0";
 
         internal static ManualLogSource LogSource;
         internal static ConfigFile ConfigRef;
