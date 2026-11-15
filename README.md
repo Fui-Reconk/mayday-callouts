@@ -51,22 +51,24 @@ WarningPanel（只读观察）             游戏自己的 GPWS/呼话/失速/�
 
 ## 音效文件对应表
 
-音效文件放 `BepInEx\plugins\MaydayCallouts\Audio\`，**文件名（不含扩展名）就是触发规则**，wav/ogg 均可。缺失的自动跳过，不影响其他音效。
+音效文件放 `BepInEx\plugins\MaydayCallouts\Audio\`，**文件名（不含扩展名）就是触发规则**，wav（16bit PCM）即可。缺失的自动跳过，不影响其他音效。
 
-自制合成包（`tools\gen_sounds.py` 生成，已随安装部署）覆盖了循环告警类；**GPWS 人声呼话需自备音源**，按下面的名字改名放进目录即可：
+**音效文件不入 git 仓库**（音源自备/本地生成）：默认包可用 `tools\gen_sounds.py` 一键重新生成（全自制合成波形，零版权风险）；GPWS 人声等真实音源自备，按下面的名字改名放进目录即可：
 
-| 文件名 | 触发条件 | 自制包已含 |
+| 文件名 | 触发条件 | 默认包 |
 |---|---|---|
-| `stall_horn` | 失速（驾驶舱失速灯亮），循环直到改出 | ✅ |
-| `gear_horn` | 起落架警告（低空未放起落架），循环 | ✅ |
-| `overspeed` | 超速（超速计时器走动），循环 | ✅ |
+| `stall_horn` | 失速（驾驶舱失速灯亮），循环直到改出 | ✅ 合成 |
+| `gear_horn` | 起落架警告（低空未放起落架），循环 | ✅ 合成 |
+| `overspeed` | 超速（超速计时器走动），循环 | ✅ 合成 |
 | `fire_bell` | 发动机火警（任一 fire > 0），循环 | ✅ |
 | `master_caution` | 任一发动机新增故障（单次） | ✅ |
 | `low_fuel` | 任一油箱油量跨过 20%（回油复位） | ✅ |
 | `depress_horn` | 客舱破洞增加（单次） | ✅ |
-| `callout_100` / `callout_80` / `callout_60` / `callout_40` / `callout_30` / `callout_20` / `callout_10` | 下降穿越对应离地高度（AGL，与游戏内部单位一致），一次性 | ❌ 自备 |
+| `callout_100` / `callout_80` / `callout_60` / `callout_40` / `callout_30` / `callout_20` / `callout_10` | 下降穿越对应离地高度（AGL，与游戏内部单位一致），一次性 | ❌ 自备（GPWS 人声） |
 | `callout_minimums` | 下降穿越决断高（游戏 MinimumsHeight = 60） | ❌ 自备 |
 | `gpws_sink_rate` / `gpws_pull_up` | 大下降率 / 更急（需 `ReplaceGameGpws=true`，开启后游戏自带 `gpws_pullup` 被屏蔽） | ❌ 自备 |
+| `gpws_bank_angle` / `gpws_dont_sink` / `gpws_glideslope` / `gpws_terrain` / `gpws_too_low_gear` / `gpws_too_low_flaps` / `gpws_too_low_terrain` / `gpws_windshear` | 预留（对应规则在 v0.3 实现） | ❌ 自备 |
+| `callout_200` / `callout_300` / `callout_400` / `callout_500` / `callout_1000` / `callout_2500` | 预留（当前呼话表只到 100，规则扩展后启用） | ❌ 自备 |
 
 高度判定用游戏自己的 `PlaneFlight.GroundProbeAgl`（每帧自算的离地高度）和 `WarningPanel.calloutHeights` 配置表，所以单位/阈值与游戏内部完全一致，无需标定。
 
