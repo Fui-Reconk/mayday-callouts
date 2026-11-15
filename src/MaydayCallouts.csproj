@@ -48,14 +48,6 @@
       <HintPath>$(BepInExInterop)\UnityEngine.AudioModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.UnityWebRequestAudioModule">
-      <HintPath>$(BepInExInterop)\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UnityWebRequestModule">
-      <HintPath>$(BepInExInterop)\UnityEngine.UnityWebRequestModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="Unity.InputSystem">
       <HintPath>$(BepInExInterop)\Unity.InputSystem.dll</HintPath>
       <Private>false</Private>
