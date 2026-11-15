@@ -131,7 +131,7 @@ namespace MaydayCallouts
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: sink_rate（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
                     // PULL UP：真机在俯冲持续期间每 ~2.5s 重报，直到改出
-                    if (velY < -9f && agl < 400f && UnityEngine.Time.unscaledTime >= _gpwsPullupNext)
+                    if (velY < -9f && agl < Plugin.PullUpAgl.Value && UnityEngine.Time.unscaledTime >= _gpwsPullupNext)
                     {
                         _gpwsPullupNext = UnityEngine.Time.unscaledTime + 2.5f;
                         _lastPullUpPlay = UnityEngine.Time.unscaledTime;

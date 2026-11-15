@@ -46,6 +46,7 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> GpwsReplace;
         internal static ConfigEntry<bool> TestAural;
         internal static ConfigEntry<float> V1Speed;
+        internal static ConfigEntry<float> PullUpAgl;
         internal static ConfigEntry<string> SuppressSounds;
         internal static System.Collections.Generic.HashSet<string> _suppressSet;
 
@@ -122,6 +123,13 @@ namespace MaydayCallouts
                 false,
                 "用 mod 的 gpws_sink_rate / gpws_pull_up 音源替换游戏自带的 gpws_pullup。\n" +
                 "开启后游戏原声被屏蔽（Play 前缀拦截），需在 Audio 目录提供这两个文件。");
+
+            PullUpAgl = Config.Bind(
+                "Callouts",
+                "PullUpAgl",
+                150f,
+                "PULL UP 告警的离地高度上限（AGL，游戏单位）。下降率 vy < -9 且低于此高度才升级 PULL UP；\n" +
+                "更高处猛降只报 SINK RATE。按你的巡航高度调整（巡航 200 就保持默认 150 或更低）。");
 
             V1Speed = Config.Bind(
                 "Callouts",
