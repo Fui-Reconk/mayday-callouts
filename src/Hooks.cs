@@ -64,14 +64,14 @@ namespace MaydayCallouts
         [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play2D")]
         private static bool Play2DPrefix(string id)
         {
-            return !CalloutEngine.ShouldBlockSound(id);
+            return !CalloutEngine.ShouldBlockSound(id) && !Plugin.ShouldBlock(id);
         }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play")]
         private static bool PlayPrefix(string id)
         {
-            return !CalloutEngine.ShouldBlockSound(id);
+            return !CalloutEngine.ShouldBlockSound(id) && !Plugin.ShouldBlock(id);
         }
 
         [HarmonyPostfix]

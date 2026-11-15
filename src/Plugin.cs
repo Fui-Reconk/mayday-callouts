@@ -3,6 +3,8 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace MaydayCallouts
@@ -43,6 +45,20 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> Callouts;
         internal static ConfigEntry<bool> GpwsReplace;
         internal static ConfigEntry<bool> TestAural;
+        internal static ConfigEntry<string> SuppressSounds;
+        internal static System.Collections.Generic.HashSet<string> _suppressSet;
+
+        /// <summary>该游戏音效 id 是否被屏蔽（Play/Play2D 前缀拦截，用于替换式覆盖）。</summary>
+        public static bool ShouldBlock(string id)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(id)) return false;
+                if (GpwsReplace.Value && id == "gpws_pullup") return true;
+                return _suppressSet != null && _suppressSet.Contains(id);
+            }
+            catch { return false; }
+        }
 
         public override void Load()
         {
@@ -112,6 +128,20 @@ namespace MaydayCallouts
                 false,
                 "诊断实验：失速触发时直调游戏自己的 WarningPanel.Aural(pf, true, true)，\n" +
                 "用于验证游戏的声音路径是否出声（听感判定）。平时关闭。");
+
+            SuppressSounds = Config.Bind(
+                "General",
+                "SuppressSounds",
+                "",
+                "屏蔽游戏原声清单（逗号分隔的音效 id，精确匹配）。\n" +
+                "被屏蔽的 id 游戏不再发声（Play/Play2D 拦截），由 mod 的音源接管。\n" +
+                "示例：ui_notify（通知提示音）、chime_seatbelt（安全带叮咚）。\n" +
+                "音效 id 清单见启动日志的 SoundBank 转储和探测日志的「声音: id」行。\n" +
+                "注意 gpws_pullup 由 ReplaceGameGpws 单独控制，不用写在这里。");
+
+            _suppressSet = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in SuppressSounds.Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                _suppressSet.Add(s.Trim());
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
