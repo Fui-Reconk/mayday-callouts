@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace MaydayCallouts
@@ -248,6 +249,34 @@ namespace MaydayCallouts
         public static void OnAlert(string key, double deadline, byte level)
         {
             Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱警示: level=" + level + " key=" + key + " deadline=" + deadline.ToString("F1"));
+        }
+
+        // ---------- 游戏声音播放记录（事件 → 音效 id 映射，替换式覆盖的依据） ----------
+        //
+        // AudioService.Play2D / Play 是游戏全部声音的必经之路。记录每次播放的 id
+        // 和时间点，和通知/呼话时间线对齐后，就能知道：
+        //   - AP 接通/安全带叮咚这些"有声音的告警"各自用的是哪个 id（可精确屏蔽替换）
+        //   - 哪些通知压根没有声音（正式版补盲区的靶子）
+        // 同 id 0.5 秒内只记一次（循环音/连发防刷屏）。
+
+        static readonly Dictionary<string, float> _lastSoundLog = new Dictionary<string, float>();
+        static readonly Dictionary<string, int> _soundCounts = new Dictionary<string, int>();
+
+        public static void OnGameSound(string id, string kind)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(id)) return;
+                float now = UnityEngine.Time.unscaledTime;
+                _soundCounts.TryGetValue(id, out int n);
+                _soundCounts[id] = n + 1;
+
+                _lastSoundLog.TryGetValue(id, out float last);
+                if (now - last < 0.5f) return;
+                _lastSoundLog[id] = now;
+                Plugin.LogSource.LogInfo("[MaydayCallouts] 声音: " + id + "（" + kind + "，第 " + _soundCounts[id] + " 次，t=" + now.ToString("F1") + "）");
+            }
+            catch { }
         }
     }
 }

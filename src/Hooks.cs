@@ -56,5 +56,19 @@ namespace MaydayCallouts
         {
             Probe.OnAlert(key, deadline, level);
         }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play2D")]
+        private static void Play2DPostfix(string id)
+        {
+            Probe.OnGameSound(id, "2D");
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play")]
+        private static void PlayPostfix(string id)
+        {
+            Probe.OnGameSound(id, "3D");
+        }
     }
 }
