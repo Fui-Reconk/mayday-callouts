@@ -86,5 +86,12 @@ namespace MaydayCallouts
         {
             Probe.OnGameSound(id, "3D");
         }
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(global::Mayday.Audio.SoundBank), "Get")]
+        private static void BankGetPostfix(string id, int variation, UnityEngine.AudioClip __result)
+        {
+            Probe.OnBankGet(id, variation, __result);
+        }
     }
 }

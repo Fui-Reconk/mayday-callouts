@@ -53,6 +53,7 @@ namespace MaydayCallouts
             _nextPoll = t + 0.25f;
 
             try { PollPanel(); } catch { }
+            try { PollAgl(); } catch { }
             try { PollEngines(); } catch { }
             try { PollFuel(); } catch { }
             try { PollHull(); } catch { }
@@ -135,8 +136,10 @@ namespace MaydayCallouts
             {
                 float gearHorn = _panel.gearHornTimer;
                 float over = _panel.overspeedTimer;
-                float stall = _panel.stallLoop;
-                string st = "gear=" + (gearHorn > 0f) + " over=" + (over > 0f) + " stall=" + (stall > 0f);
+                int stall = _panel.stallLoop;
+                bool stallActive = stall > 0;
+                TryAuralTest(_panel, stallActive); // Aural 直调实验（TestAural=true 时）
+                string st = "gear=" + (gearHorn > 0f) + " over=" + (over > 0f) + " stall=" + stallActive;
                 if (st != _lastChaos) // 借用：状态翻转才打一条
                 {
                     Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱告警状态: " + st);
@@ -251,8 +254,86 @@ namespace MaydayCallouts
             Plugin.LogSource.LogInfo("[MaydayCallouts] 驾驶舱警示: level=" + level + " key=" + key + " deadline=" + deadline.ToString("F1"));
         }
 
-        // ---------- 游戏声音播放记录（事件 → 音效 id 映射，替换式覆盖的依据） ----------
+        // ---------- SoundBank.Get 终审探针：游戏到底在请求哪些音频、拿没拿到 ----------
         //
+        // SoundBank.Get(id, variation) 是所有 SoundBank 音效的必经之路
+        //（Play/Play2D 之外还有 PlayInternal 等直连路径，只有 Get 能全覆盖）。
+        //   - 请求返回 null  = 音效定义/音频在 demo 里缺失（"哑巴告警"实锤）
+        //   - 请求返回 clip  = 有音频（此时听不到就是播放层问题）
+        // null 无条件记录（决定性证据）；非 null 的 id 一次性记录。
+
+        static readonly HashSet<string> _bankSeen = new HashSet<string>();
+
+        public static void OnBankGet(string id, int variation, UnityEngine.AudioClip result)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(id)) return;
+                if (result == null)
+                {
+                    Plugin.LogSource.LogWarning("[MaydayCallouts] SoundBank.Get 未命中: id=" + id + " variation=" + variation + " → null");
+                    return;
+                }
+                if (_bankSeen.Add(id))
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank.Get: " + id + " → " + result.name + "（有音频）");
+            }
+            catch { }
+        }
+
+        // ---------- AGL 终审探针：GroundProbeAgl 的实际行为 ----------
+
+        static global::Mayday.Flight.PlaneFlight _pfCached;
+        static float _nextAglLog;
+        static float _lastLoggedAgl = float.MinValue;
+
+        static void PollAgl()
+        {
+            try
+            {
+                if (_pfCached == null)
+                    _pfCached = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.PlaneFlight>();
+                if (_pfCached == null) return;
+
+                float agl = global::Mayday.Flight.PlaneFlight.GroundProbeAgl;
+                float vy = 0f;
+                try { vy = _pfCached.lastRenderVel.y; } catch { }
+
+                float now = UnityEngine.Time.unscaledTime;
+                if (now >= _nextAglLog || Math.Abs(agl - _lastLoggedAgl) > 3f)
+                {
+                    _nextAglLog = now + 1f;
+                    _lastLoggedAgl = agl;
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] AGL=" + agl.ToString("F1") + " vy=" + vy.ToString("F1"));
+                }
+            }
+            catch { }
+        }
+
+        // ---------- Aural 直调实验：游戏自己的声音路径到底出不出声 ----------
+
+        static bool _auralTestedThisStall;
+
+        static void TryAuralTest(global::Mayday.Flight.WarningPanel panel, bool stallActive)
+        {
+            if (!Plugin.TestAural.Value) return;
+            if (!stallActive) { _auralTestedThisStall = false; return; }
+            if (_auralTestedThisStall) return;
+            try
+            {
+                if (_pfCached == null)
+                    _pfCached = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.PlaneFlight>();
+                if (_pfCached == null) return;
+                panel.Aural(_pfCached, true, true);
+                _auralTestedThisStall = true;
+                Plugin.LogSource.LogWarning("[MaydayCallouts] Aural 直调实验：已调用 Aural(pf, stallWarn=true, power=true) —— 听一下有没有失速警告声");
+            }
+            catch (Exception e)
+            {
+                Plugin.LogSource.LogWarning("[MaydayCallouts] Aural 直调失败: " + e.Message);
+            }
+        }
+
+        // ---------- 游戏声音播放记录（事件 → 音效 id 映射，替换式覆盖的依据） ----------        //
         // AudioService.Play2D / Play 是游戏全部声音的必经之路。记录每次播放的 id
         // 和时间点，和通知/呼话时间线对齐后，就能知道：
         //   - AP 接通/安全带叮咚这些"有声音的告警"各自用的是哪个 id（可精确屏蔽替换）

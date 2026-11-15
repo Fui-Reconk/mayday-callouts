@@ -42,6 +42,7 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> AlarmHull;
         internal static ConfigEntry<bool> Callouts;
         internal static ConfigEntry<bool> GpwsReplace;
+        internal static ConfigEntry<bool> TestAural;
 
         public override void Load()
         {
@@ -104,6 +105,13 @@ namespace MaydayCallouts
                 false,
                 "用 mod 的 gpws_sink_rate / gpws_pull_up 音源替换游戏自带的 gpws_pullup。\n" +
                 "开启后游戏原声被屏蔽（Play 前缀拦截），需在 Audio 目录提供这两个文件。");
+
+            TestAural = Config.Bind(
+                "Debug",
+                "TestAural",
+                false,
+                "诊断实验：失速触发时直调游戏自己的 WarningPanel.Aural(pf, true, true)，\n" +
+                "用于验证游戏的声音路径是否出声（听感判定）。平时关闭。");
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
