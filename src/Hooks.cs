@@ -64,14 +64,24 @@ namespace MaydayCallouts
         [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play2D")]
         private static bool Play2DPrefix(string id)
         {
-            return !CalloutEngine.ShouldBlockSound(id) && !Plugin.ShouldBlock(id);
+            if (CalloutEngine.ShouldBlockSound(id) || Plugin.ShouldBlock(id))
+            {
+                AudioPack.TryReplace(id); // 屏蔽原声的同时，mod 有同名音源则接替播放
+                return false;
+            }
+            return true;
         }
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play")]
         private static bool PlayPrefix(string id)
         {
-            return !CalloutEngine.ShouldBlockSound(id) && !Plugin.ShouldBlock(id);
+            if (CalloutEngine.ShouldBlockSound(id) || Plugin.ShouldBlock(id))
+            {
+                AudioPack.TryReplace(id);
+                return false;
+            }
+            return true;
         }
 
         [HarmonyPostfix]

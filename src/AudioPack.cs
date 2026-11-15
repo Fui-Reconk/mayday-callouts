@@ -126,9 +126,14 @@ namespace MaydayCallouts
                     def.category = global::Mayday.Audio.SoundCategory.Sfx;
                     def.volume = 1f;
                     def.maxInstances = 3;
-                    def.cooldown = name.Contains("horn") || name.Contains("bell") || name == "overspeed" || name == "depress_horn"
-                        ? 1.0f  // 循环类：冷却 1s，靠 250ms 重触发维持
-                        : 0.2f; // 一次性
+
+                    // 循环类（喇叭/铃/抖杆）：cooldown = 音频时长 - 0.1s
+                    // —— 250ms 重触发会被冷却吞掉，直到上一声快放完才接上，
+                    //    自然形成"按音频实际长度循环"的节奏（如 3s 的 STALL 语音）
+                    bool loopType = name.Contains("horn") || name.Contains("bell") || name == "overspeed" || name == "depress_horn";
+                    float clipLen = 1f;
+                    try { clipLen = kv.Value != null ? kv.Value.length : 1f; } catch { }
+                    def.cooldown = loopType ? Math.Max(1.0f, clipLen - 0.1f) : 0.2f;
                     def.loopClip = false;
 
                     defs[gameId] = def;
@@ -158,6 +163,20 @@ namespace MaydayCallouts
         public static bool Has(string name)
         {
             return _registered && _clips.ContainsKey(name);
+        }
+
+        /// <summary>
+        /// 被屏蔽的游戏原声接替播放：游戏侧同名音源存在时，屏蔽原声后由 mod 接管
+        /// （如游戏 ap_disconnect → 我们注册的波音 737 AP disconnect）。
+        /// </summary>
+        public static void TryReplace(string gameId)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(gameId) && _clips.ContainsKey(gameId.ToLowerInvariant()))
+                    Play(gameId.ToLowerInvariant());
+            }
+            catch { }
         }
 
         /// <summary>
