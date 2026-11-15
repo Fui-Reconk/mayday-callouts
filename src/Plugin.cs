@@ -32,6 +32,14 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> DumpSoundBank;
         internal static ConfigEntry<float> Volume;
         internal static ConfigEntry<string> TestSoundId;
+        internal static ConfigEntry<bool> Alarms;
+        internal static ConfigEntry<bool> AlarmStall;
+        internal static ConfigEntry<bool> AlarmGear;
+        internal static ConfigEntry<bool> AlarmOverspeed;
+        internal static ConfigEntry<bool> AlarmFire;
+        internal static ConfigEntry<bool> AlarmMasterCaution;
+        internal static ConfigEntry<bool> AlarmFuel;
+        internal static ConfigEntry<bool> AlarmHull;
 
         public override void Load()
         {
@@ -65,6 +73,21 @@ namespace MaydayCallouts
                 "试听用的游戏音效 id（留空禁用）。进机舱后按 P 播放一次，\n" +
                 "用于验证 AudioService.Play2D 在 interop 下是否可用。音效 id 见启动日志的 SoundBank 转储。");
 
+            Alarms = Config.Bind(
+                "Alarms",
+                "Enabled",
+                true,
+                "告警音总开关（需要音效包：BepInEx\\plugins\\MaydayCallouts\\Audio\\*.wav，\n" +
+                "可用 tools\\gen_sounds.py 生成自制包）。");
+
+            AlarmStall = Config.Bind("Alarms", "Stall", true, "失速喇叭（stallLoop 状态驱动，循环直到解除）");
+            AlarmGear = Config.Bind("Alarms", "Gear", true, "起落架警告喇叭（gearHornTimer 状态驱动）");
+            AlarmOverspeed = Config.Bind("Alarms", "Overspeed", true, "超速抖杆声（overspeedTimer 状态驱动）");
+            AlarmFire = Config.Bind("Alarms", "EngineFire", true, "发动机火警铃（任一 fire > 0）");
+            AlarmMasterCaution = Config.Bind("Alarms", "MasterCaution", true, "主警告（任一发动机 faults 位图新增故障时单次）");
+            AlarmFuel = Config.Bind("Alarms", "LowFuel", true, "低油量（任一油箱跨过 20%，回油复位）");
+            AlarmHull = Config.Bind("Alarms", "Depressurize", true, "客舱释压（破洞数增加时单次）");
+
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
 
@@ -73,6 +96,7 @@ namespace MaydayCallouts
             ConsoleGuard.DisableQuickEdit();
             AudioLink.Init();
             global::MaydayCallouts.Probe.Init();
+            AudioPack.StartLoad(); // 轮询式加载自制音效包（Audio/*.wav，Tick 驱动）
         }
     }
 }
