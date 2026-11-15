@@ -16,3 +16,9 @@ winhttp.dll
 # 用户自备音源（版权内容，严禁入库）
 gpws/
 Audio/user_*/
+
+# 音频文件不入库（音源自备/本地生成）
+Audio/*.wav
+Audio/*.ogg
+gpws/
+Audio/user_*/
