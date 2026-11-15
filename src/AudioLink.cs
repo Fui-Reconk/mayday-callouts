@@ -130,7 +130,7 @@ namespace MaydayCallouts
                 if (kb != null && kb.pKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextSelfTest)
                 {
                     _nextSelfTest = UnityEngine.Time.unscaledTime + 0.5f;
-                    AudioPack.PlayOnce("master_caution");
+                    AudioPack.Play("master_caution");
                     Plugin.LogSource.LogInfo("[MaydayCallouts] 自测播放: master_caution（按 P，mod 音源路径）");
                 }
             }

@@ -231,6 +231,7 @@ namespace MaydayCallouts
             string s = stage.ToString();
             if (s == _lastStage) return;
             _lastStage = s;
+            SoundRules.CurrentStage = s; // 呼话/告警引擎共用阶段状态
             if (Ready) Plugin.LogSource.LogInfo("[MaydayCallouts] 阶段切换 -> " + s);
         }
 
@@ -295,22 +296,16 @@ namespace MaydayCallouts
                 if (_pfCached == null) return;
 
                 float agl = global::Mayday.Flight.PlaneFlight.GroundProbeAgl;
-                float parkAgl = 0f;
-                try
-                {
-                    var ip = _pfCached.initialParkPos;
-                    if (ip != null) parkAgl = _pfCached.transform.position.y - ip.y;
-                }
-                catch { }
+                float fsAgl = SoundRules.FsimAgl;
                 float vy = 0f;
                 try { vy = _pfCached.lastRenderVel.y; } catch { }
 
                 float now = UnityEngine.Time.unscaledTime;
-                if (now >= _nextAglLog || Math.Abs(agl - _lastLoggedAgl) > 3f)
+                if (now >= _nextAglLog || Math.Abs(fsAgl - _lastLoggedAgl) > 3f)
                 {
                     _nextAglLog = now + 1f;
-                    _lastLoggedAgl = agl;
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] AGL=" + agl.ToString("F1") + " parkAGL=" + parkAgl.ToString("F1") + " vy=" + vy.ToString("F1"));
+                    _lastLoggedAgl = fsAgl;
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] probeAGL=" + agl.ToString("F1") + " fsAGL=" + fsAgl.ToString("F1") + " vy=" + vy.ToString("F1"));
                 }
             }
             catch { }

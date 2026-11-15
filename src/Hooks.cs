@@ -18,6 +18,7 @@ namespace MaydayCallouts
         [HarmonyPatch(typeof(global::Mirror.NetworkManager), "Update")]
         private static void Postfix()
         {
+            AudioPack.Tick(); // SoundBank 注册驱动
             AudioLink.Tick();
             Probe.Tick(); // 内部有 250ms 节流门
             SoundRules.Tick(); // 告警音规则引擎（同样节流）

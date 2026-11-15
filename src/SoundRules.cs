@@ -7,41 +7,52 @@ namespace MaydayCallouts
     /// <summary>
     /// 告警规则引擎：把游戏状态映射到自制音效包的播放。
     ///
-    /// 覆盖图依据（v0.1.0 探测版结论）——游戏在这些告警上只有灯/计时器/通知，
+    /// 覆盖图依据（v0.1.0/v0.1.1 探测结论）——游戏在这些告警上只有灯/计时器/通知，
     /// 没有驾驶舱声音，所以本层直接叠加，不会和游戏自带声音打架：
     ///
-    ///   失速      WarningPanel.stallLoop > 0        → stall_horn 循环
-    ///   起落架    gearHornTimer > 0                 → gear_horn 循环
-    ///   超速      overspeedTimer > 0                → overspeed 循环
-    ///   发动机火警 任一 EngineUnit.fire > 0.01       → fire_bell 循环
-    ///   主警告    任一 faults 位图从 0 变非 0        → master_caution 单次
-    ///   低油量    任一 tank 跨过 20%                 → low_fuel 单次
-    ///   客舱释压  HullSystem.holes 数量增加          → depress_horn 单次
+    ///   失速      WarningPanel.stallLoop > 0        → stall_horn（循环=250ms 重触发）
+    ///   起落架    gearHornTimer > 0                 → gear_horn
+    ///   超速      overspeedTimer > 0                → overspeed
+    ///   发动机火警 任一 EngineUnit.fire > 0.01       → fire_bell
+    ///   主警告    任一 faults 位图从 0 变非 0        → master_caution（单次）
+    ///   低油量    任一 tank 跨过 20%                 → low_fuel（单次）
+    ///   客舱释压  HullSystem.holes 数量增加          → depress_horn（单次）
     ///
-    /// 每个告警独立配置开关；循环类在条件解除时自动 Stop。
-    /// 高度呼话链（calloutHeights）需要离地高度标定，v0.3 再上。
+    /// 播放走 AudioPack.Play（SoundBank 注册 + Play2D 管线，探测证实出声）。
+    /// 循环类 = 条件持续期间每 250ms 重触发，def.cooldown 吞掉多余触发；
+    /// 条件解除后最后一声自然收尾。
+    ///
+    /// 同时维护 FlightSim 离地高度（呼话引擎共用）：
+    ///   GroundY 在地面阶段（飞机停放、vy≈0）捕获，AGL = Pos.y − GroundY。
+    ///  （实测教训：PlaneFlight.GroundProbeAgl 恒定 22.5 不可用；
+    ///   PlaneFlight.transform 不随飞机移动也不可用。）
     /// </summary>
     internal static class SoundRules
     {
         static float _nextPoll;
+        static global::Mayday.Flight.WarningPanel _panel;
+        static global::Mayday.Flight.FlightSim _fs;
 
-        // 循环告警的当前状态
-        static bool _stallPlaying, _gearPlaying, _overPlaying, _firePlaying;
-
-        // 主警告：faults 从 0 变非 0 才触发一次
         static bool _lastHadFault;
-
-        // 燃油：跨 20% 触发一次，回油后复位
         static bool[] _fuelLatched = new bool[2] { true, true };
-
-        // 释压：破洞数增加触发一次
         static int _lastHoles = -1;
+
+        // 呼话引擎共用的高度状态
+        public static string CurrentStage = "";
+        public static float GroundY = float.MinValue;
+        public static float FsimAgl = float.MinValue;
+        public static float FsimVy;
+
+        static readonly HashSet<string> GroundStages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "PreShift", "Boarding", "Turnaround", "Deplaning", "Arrived" };
 
         public static void Tick()
         {
+            try { PollFlightSim(); } catch { }
+
             if (!Plugin.Alarms.Value) return;
             if (!AudioPack.Loaded) return;
-            if (global::Mayday.GameState.Instance == null) { StopAll(); return; }
+            if (global::Mayday.GameState.Instance == null) return;
 
             float t = UnityEngine.Time.unscaledTime;
             if (t < _nextPoll) return;
@@ -53,57 +64,55 @@ namespace MaydayCallouts
             try { PollHull(); } catch { }
         }
 
-        public static void StopAll()
+        static global::Mayday.Flight.PlaneFlight _pf;
+
+        static void PollFlightSim()
         {
-            if (_stallPlaying) { AudioPack.StopLoop("stall_horn"); _stallPlaying = false; }
-            if (_gearPlaying) { AudioPack.StopLoop("gear_horn"); _gearPlaying = false; }
-            if (_overPlaying) { AudioPack.StopLoop("overspeed"); _overPlaying = false; }
-            if (_firePlaying) { AudioPack.StopLoop("fire_bell"); _firePlaying = false; }
-            _lastHadFault = false;
-            _fuelLatched = new bool[2] { true, true };
-            _lastHoles = -1;
+            if (!Plugin.Callouts.Value) return; // 只有呼话引擎需要
+            if (_pf == null)
+                _pf = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.PlaneFlight>();
+            if (_pf == null) return;
+            if (_fs == null)
+            {
+                try { _fs = _pf.sim; } catch { }
+                if (_fs == null) return;
+            }
+
+            float pos = 0f, vy = 0f;
+            try { pos = _fs.Pos.y; } catch { return; }
+            try { vy = _pf.lastRenderVel.y; } catch { }
+            FsimVy = vy;
+
+            bool groundedStage = GroundStages.Contains(CurrentStage);
+            if (GroundY == float.MinValue && groundedStage && Math.Abs(vy) < 0.5f)
+                GroundY = pos; // 停在地面时标定机场地面高度
+            if (groundedStage && Math.Abs(vy) < 0.3f)
+                GroundY = pos; // 地面阶段持续校准
+
+            FsimAgl = GroundY == float.MinValue ? float.MinValue : pos - GroundY;
         }
 
         static void PollPanel()
         {
-            var panel = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.WarningPanel>();
-            if (panel == null) { StopLoopsExcept(new HashSet<string>()); return; }
+            if (_panel == null)
+                _panel = UnityEngine.Object.FindObjectOfType<global::Mayday.Flight.WarningPanel>();
+            if (_panel == null) return;
 
             bool stall = false, gear = false, over = false;
-            try { stall = panel.stallLoop > 0; } catch { }
-            try { gear = panel.gearHornTimer > 0; } catch { }
-            try { over = panel.overspeedTimer > 0; } catch { }
+            try { stall = _panel.stallLoop > 0; } catch { }
+            try { gear = _panel.gearHornTimer > 0; } catch { }
+            try { over = _panel.overspeedTimer > 0; } catch { }
 
-            if (Plugin.AlarmStall.Value)
-            {
-                if (stall && !_stallPlaying) { AudioPack.PlayLoop("stall_horn"); Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 失速喇叭"); _stallPlaying = true; }
-                if (!stall && _stallPlaying) { AudioPack.StopLoop("stall_horn"); _stallPlaying = false; }
-            }
-            if (Plugin.AlarmGear.Value)
-            {
-                if (gear && !_gearPlaying) { AudioPack.PlayLoop("gear_horn"); Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 起落架警告"); _gearPlaying = true; }
-                if (!gear && _gearPlaying) { AudioPack.StopLoop("gear_horn"); _gearPlaying = false; }
-            }
-            if (Plugin.AlarmOverspeed.Value)
-            {
-                if (over && !_overPlaying) { AudioPack.PlayLoop("overspeed"); Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 超速抖杆"); _overPlaying = true; }
-                if (!over && _overPlaying) { AudioPack.StopLoop("overspeed"); _overPlaying = false; }
-            }
-        }
-
-        static HashSet<string> StopLoopsExcept(HashSet<string> keep)
-        {
-            if (_stallPlaying && !keep.Contains("stall_horn")) { AudioPack.StopLoop("stall_horn"); _stallPlaying = false; }
-            if (_gearPlaying && !keep.Contains("gear_horn")) { AudioPack.StopLoop("gear_horn"); _gearPlaying = false; }
-            if (_overPlaying && !keep.Contains("overspeed")) { AudioPack.StopLoop("overspeed"); _overPlaying = false; }
-            if (_firePlaying && !keep.Contains("fire_bell")) { AudioPack.StopLoop("fire_bell"); _firePlaying = false; }
-            return keep;
+            // 循环类：条件持续期间每轮 Play（cooldown 吞掉多余触发）
+            if (stall) AudioPack.Play("stall_horn");
+            if (gear) AudioPack.Play("gear_horn");
+            if (over) AudioPack.Play("overspeed");
         }
 
         static void PollEngines()
         {
             var arr = UnityEngine.Object.FindObjectsOfType<global::Mayday.Systems.EngineUnit>();
-            if (arr == null || arr.Length == 0) { StopLoopsExcept(new HashSet<string>()); return; }
+            if (arr == null || arr.Length == 0) return;
 
             bool anyFire = false, anyFault = false;
             for (int i = 0; i < arr.Length; i++)
@@ -118,23 +127,14 @@ namespace MaydayCallouts
                 catch { }
             }
 
-            if (Plugin.AlarmFire.Value)
-            {
-                if (anyFire && !_firePlaying) { AudioPack.PlayLoop("fire_bell"); Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 发动机火警"); _firePlaying = true; }
-                if (!anyFire && _firePlaying) { AudioPack.StopLoop("fire_bell"); _firePlaying = false; }
-            }
+            if (anyFire) AudioPack.Play("fire_bell"); // 条件期间持续响
 
-            if (Plugin.AlarmMasterCaution.Value)
+            if (anyFault && !_lastHadFault)
             {
-                if (anyFault && !_lastHadFault)
-                {
-                    AudioPack.PlayOnce("master_caution");
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 主警告（新故障）");
-                }
-                _lastHadFault = anyFault;
+                AudioPack.Play("master_caution");
+                Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 主警告（新故障）");
             }
-
-            if (!anyFire) StopLoopsExcept(new HashSet<string>());
+            _lastHadFault = anyFault;
         }
 
         static void PollFuel()
@@ -150,11 +150,8 @@ namespace MaydayCallouts
                     if (pct <= 20f && !_fuelLatched[i])
                     {
                         _fuelLatched[i] = true;
-                        if (Plugin.AlarmFuel.Value)
-                        {
-                            AudioPack.PlayOnce("low_fuel");
-                            Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 低油量（" + (i == 0 ? "左" : "右") + "箱 " + pct.ToString("F0") + "%）");
-                        }
+                        AudioPack.Play("low_fuel");
+                        Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 低油量（" + (i == 0 ? "左" : "右") + "箱 " + pct.ToString("F0") + "%）");
                     }
                     if (pct > 25f) _fuelLatched[i] = false; // 回油复位
                 }
@@ -169,9 +166,9 @@ namespace MaydayCallouts
             try
             {
                 int holes = hs.holes != null ? hs.holes.Count : 0;
-                if (_lastHoles >= 0 && holes > _lastHoles && Plugin.AlarmHull.Value)
+                if (_lastHoles >= 0 && holes > _lastHoles)
                 {
-                    AudioPack.PlayOnce("depress_horn");
+                    AudioPack.Play("depress_horn");
                     Plugin.LogSource.LogInfo("[MaydayCallouts] 告警音: 客舱释压（破洞 " + _lastHoles + " -> " + holes + "）");
                 }
                 if (holes != _lastHoles) _lastHoles = holes;

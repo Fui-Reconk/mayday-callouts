@@ -4,21 +4,27 @@ using System.IO;
 using System.Text;
 using BepInEx;
 using UnityEngine;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 namespace MaydayCallouts
 {
     /// <summary>
-    /// 外置音频包加载器 + 播放管理。
+    /// 外置音频包加载器 + SoundBank 注册器。
     ///
     /// 音效文件放 BepInEx\plugins\MaydayCallouts\Audio\*.wav（16bit PCM），
     /// 文件名（不含扩展名）即音效名：stall_horn / gear_horn / overspeed /
     /// fire_bell / master_caution / low_fuel / depress_horn /
     /// chime_seatbelt / chime_notify / callout_100 / callout_80 / ...
     ///
-    /// 加载不用 UnityWebRequest —— interop 的 GetAudioClip 引用了不存在的
-    /// DownloadHandlerAudioClip 构造（实测 MissingMethodException）。
-    /// 改为手动解析 RIFF/PCM（16bit）+ AudioClip.Create + SetData，
-    /// 全程同步、无协程依赖。ogg 暂不支持（自行转 wav）。
+    /// 加载：手动解析 RIFF/PCM（16bit）+ AudioClip.Create + SetData
+    ///（interop 的 GetAudioClip 引用了不存在的 DownloadHandlerAudioClip
+    /// 构造，实测 MissingMethodException，不能用）。
+    ///
+    /// 播放：把自制音效**注册进游戏的 SoundBank**（defs/defList/clips 三张表）
+    /// 后，统一用 AudioService.Play2D 播放 —— 那是游戏自己验证过出声的管线
+    ///（ui_click/chime_seatbelt 就是这么响的）。循环类告警靠 def.cooldown
+    /// + 每 250ms 重触发实现"持续响"，条件解除后最后一声自然收尾，
+    /// 不需要 Stop（绕开拿不到 voice id 的问题）。
     ///
     /// mod 仓库不含任何音频内容 —— 音源自备（自购/CC0/自制），
     /// 自带的合成音效包可用 tools\gen_sounds.py 重新生成。
@@ -26,15 +32,18 @@ namespace MaydayCallouts
     internal static class AudioPack
     {
         const string Folder = "MaydayCallouts";
+        const string Prefix = "mco_";
 
         static readonly Dictionary<string, AudioClip> _clips = new Dictionary<string, AudioClip>();
-        static readonly Dictionary<string, AudioSource> _sources = new Dictionary<string, AudioSource>();
-        static GameObject _root;
         static bool _loaded;
+        static bool _registered;
+        static global::Mayday.Audio.SoundBank _bank;
+        static global::Mayday.Audio.AudioService _service;
 
         static string AudioDir => Path.Combine(Paths.PluginPath, Folder, "Audio");
 
         public static bool Loaded => _loaded;
+        public static bool Registered => _registered;
 
         public static void StartLoad()
         {
@@ -66,9 +75,99 @@ namespace MaydayCallouts
             }
 
             if (ok > 0)
-                Plugin.LogSource.LogInfo("[MaydayCallouts] 音频包加载完成: " + ok + " 个音效（" + (fail > 0 ? fail + " 个失败）" : "无失败）") + "\n  " + string.Join("\n  ", new List<string>(_clips.Keys).ToArray()));
+                Plugin.LogSource.LogInfo("[MaydayCallouts] 音频包解析完成: " + ok + " 个音效待注册（" + (fail > 0 ? fail + " 个失败）" : "无失败）"));
             else
-                Plugin.LogSource.LogWarning("[MaydayCallouts] 没有成功加载任何音效");
+                Plugin.LogSource.LogWarning("[MaydayCallouts] 没有成功解析任何音效");
+        }
+
+        /// <summary>每帧驱动注册（等 SoundBank 就绪）。注册完成后变空操作。</summary>
+        public static void Tick()
+        {
+            if (_registered || _clips.Count == 0) return;
+            try
+            {
+                // SoundBank 不是 Unity 对象（Il2CppSystem.Object），只能从单例拿
+                if (_service == null) _service = global::Mayday.Audio.AudioService.Instance;
+                if (_service == null) return;
+                if (_bank == null) _bank = _service.Bank;
+                if (_bank == null) return;
+                RegisterToBank(_bank);
+            }
+            catch (Exception e)
+            {
+                Plugin.LogSource.LogWarning("[MaydayCallouts] SoundBank 注册失败: " + e.Message);
+                _registered = true; // 不再重试，回退到静默（不炸游戏）
+            }
+        }
+
+        /// <summary>把自制音效注册进游戏的 SoundBank 三张表。</summary>
+        static void RegisterToBank(global::Mayday.Audio.SoundBank bank)
+        {
+            var defs = global::Mayday.Audio.SoundBank.defs;       // static Dictionary<string, SoundDef>
+            var defList = global::Mayday.Audio.SoundBank.defList; // static List<SoundDef>
+            if (defs == null || defList == null)
+            {
+                Plugin.LogSource.LogWarning("[MaydayCallouts] SoundBank.defs/defList 为空，注册跳过");
+                _registered = true;
+                return;
+            }
+
+            int registered = 0;
+            foreach (var kv in _clips)
+            {
+                string name = kv.Key;
+                string gameId = Prefix + name;
+                try
+                {
+                    if (defs.TryGetValue(gameId, out var existing) && existing != null) continue; // 已注册
+
+                    var def = new global::Mayday.Audio.SoundDef();
+                    def.id = gameId;
+                    def.category = global::Mayday.Audio.SoundCategory.Sfx;
+                    def.volume = 1f;
+                    def.maxInstances = 3;
+                    def.cooldown = name.Contains("horn") || name.Contains("bell") || name == "overspeed" || name == "depress_horn"
+                        ? 1.0f  // 循环类：冷却 1s，靠 250ms 重触发维持
+                        : 0.2f; // 一次性
+                    def.loopClip = false;
+
+                    defs[gameId] = def;
+                    defList.Add(def);
+
+                    // 实例 clips 表：id → clip 数组（Get(id, variation) 从这里取）
+                    var arr = new Il2CppReferenceArray<UnityEngine.AudioClip>(1);
+                    arr[0] = kv.Value;
+                    bank.clips[gameId] = arr;
+
+                    registered++;
+                }
+                catch (Exception e)
+                {
+                    Plugin.LogSource.LogWarning("[MaydayCallouts] 注册失败 " + name + ": " + e.Message);
+                }
+            }
+
+            _registered = true;
+            if (registered > 0)
+                Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank 注册完成: " + registered + " 个音效（前缀 " + Prefix + "）");
+            else
+                Plugin.LogSource.LogWarning("[MaydayCallouts] 没有新注册的音效（可能已注册过）");
+        }
+
+        /// <summary>
+        /// 播放自制音效（走游戏 Play2D 管线）。循环类告警在条件持续期间
+        /// 每 250ms 重触发一次，def.cooldown 会吞掉多余的触发。
+        /// </summary>
+        public static void Play(string name)
+        {
+            try
+            {
+                if (!_registered) return;
+                if (_service == null) _service = global::Mayday.Audio.AudioService.Instance;
+                if (_service == null) return;
+                _service.Play2D(Prefix + name, Math.Min(1f, Math.Max(0f, Plugin.Volume.Value)), 1f);
+            }
+            catch { }
         }
 
         /// <summary>
@@ -118,50 +217,6 @@ namespace MaydayCallouts
             if (clip == null) return null;
             clip.SetData(floats, 0);
             return clip;
-        }
-
-        static AudioSource GetSource(string name, bool loop)
-        {
-            if (_root == null)
-            {
-                _root = new GameObject("MaydayCalloutsAudio");
-                UnityEngine.Object.DontDestroyOnLoad(_root);
-            }
-            if (!_sources.TryGetValue(name, out var src) || src == null)
-            {
-                var go = new GameObject("MCO_" + name);
-                go.transform.SetParent(_root.transform, false);
-                src = go.AddComponent<AudioSource>();
-                src.playOnAwake = false;
-                src.spatialBlend = 0f; // 2D：告警音全机可闻
-                src.loop = false;
-                _sources[name] = src;
-            }
-            if (_clips.TryGetValue(name, out var clip) && clip != null) src.clip = clip;
-            src.loop = loop;
-            src.volume = Math.Min(1f, Math.Max(0f, Plugin.Volume.Value));
-            return src;
-        }
-
-        /// <summary>循环播放（告警条件持续期间）。已在播同名则不动。</summary>
-        public static void PlayLoop(string name)
-        {
-            if (!Loaded) return;
-            var src = GetSource(name, loop: true);
-            if (src != null && !src.isPlaying) src.Play();
-        }
-
-        public static void StopLoop(string name)
-        {
-            if (_sources.TryGetValue(name, out var src) && src != null && src.isPlaying) src.Stop();
-        }
-
-        /// <summary>单次播放（一次性告警）。</summary>
-        public static void PlayOnce(string name)
-        {
-            if (!Loaded) return;
-            var src = GetSource(name, loop: false);
-            if (src != null && src.clip != null) src.Play();
         }
     }
 }

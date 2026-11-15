@@ -55,25 +55,12 @@ namespace MaydayCallouts
                     if (_pf == null) { _pfMissing = true; return; }
                 }
 
-                // AGL = 飞机当前高度 − 机场停放高度（飞机在地面时差值≈0）
-                try
-                {
-                    var ip = _pf.initialParkPos;
-                    if (ip != null && (Math.Abs(ip.y - _parkY) > 0.5f || _parkY == float.MinValue))
-                    {
-                        if (_parkY != float.MinValue) ResetAll(); // 换机场：整组复位
-                        _parkY = ip.y;
-                    }
-                }
-                catch { }
-                if (_parkY == float.MinValue) return;
+                // AGL 来源：SoundRules 维护的 FlightSim 离地高度
+                //（GroundProbeAgl 恒定 22.5 不可用；transform 不随飞机移动不可用）
+                float agl = SoundRules.FsimAgl;
+                if (agl == float.MinValue) return; // 还没标定机场地面
 
-                float agl;
-                try { agl = _pf.transform.position.y - _parkY; }
-                catch { return; }
-
-                float velY = 0f;
-                try { velY = _pf.lastRenderVel.y; } catch { }
+                float velY = SoundRules.FsimVy;
                 bool descending = velY < -0.5f;
 
                 var names = global::Mayday.Flight.WarningPanel.calloutNames;
@@ -106,7 +93,7 @@ namespace MaydayCallouts
                         if (UnityEngine.Time.unscaledTime < _nextCalloutAllowed) continue; // 间隔保护（门闩已置位）
                         _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
                         string soundName = "callout_" + SafeName(names, i);
-                        AudioPack.PlayOnce(soundName);
+                        AudioPack.Play(soundName);
                         Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: " + soundName + "（AGL=" + agl.ToString("F0") + "）");
                     }
                 }
@@ -118,7 +105,7 @@ namespace MaydayCallouts
                     if (UnityEngine.Time.unscaledTime >= _nextCalloutAllowed)
                     {
                         _nextCalloutAllowed = UnityEngine.Time.unscaledTime + 1.2f;
-                        AudioPack.PlayOnce("callout_minimums");
+                        AudioPack.Play("callout_minimums");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] 呼话: callout_minimums（AGL=" + agl.ToString("F0") + "）");
                     }
                 }
@@ -132,13 +119,13 @@ namespace MaydayCallouts
                     if (velY < -5f && agl < 400f && !_gpwsSinkLatched)
                     {
                         _gpwsSinkLatched = true;
-                        AudioPack.PlayOnce("gpws_sink_rate");
+                        AudioPack.Play("gpws_sink_rate");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: sink_rate（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
                     if (velY < -9f && agl < 400f && !_gpwsPullupLatched)
                     {
                         _gpwsPullupLatched = true;
-                        AudioPack.PlayOnce("gpws_pull_up");
+                        AudioPack.Play("gpws_pull_up");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: pull_up（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
                 }
