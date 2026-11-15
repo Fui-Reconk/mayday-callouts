@@ -59,6 +59,7 @@ namespace MaydayCallouts
             _nextPoll = t + 0.25f;
 
             try { PollPanel(); } catch { }
+            try { PollTakeoffLanding(); } catch { }
             try { PollEngines(); } catch { }
             try { PollFuel(); } catch { }
             try { PollHull(); } catch { }
@@ -90,6 +91,73 @@ namespace MaydayCallouts
                 GroundY = pos; // 地面阶段持续校准
 
             FsimAgl = GroundY == float.MinValue ? float.MinValue : pos - GroundY;
+        }
+
+        // ---------- 起飞/着陆提示（V1 + RETARD，现实机组标准呼话） ----------
+        //
+        //   V1：地面加速滑跑、速度达到 V1Speed 配置阈值时报一次（起飞决断速度）。
+        //       音源 = Audio\v1.wav（缺失则静默，等用户放文件）。
+        //   RETARD：离地武装 → 进近下降穿越 15 高度 → 报一次（A320 落地收油门
+        //       提醒，音源 = callout_retard.wav，用户已提供）。
+        //       重新起飞后自动复位，每次着陆只报一次。
+        //
+        // 速度标定：V1Speed 默认 0（关闭）。日志在滑跑阶段每秒打 SPD=，
+        // 用一轮起飞实测的滑跑速度范围来定 V1Speed。
+
+        static bool _airborne;
+        static bool _v1Latched;
+        static bool _retardArmed;   // 离地后武装，着陆报一次
+        static bool _retardLatched; // 本次着陆已报
+        static float _nextSpdLog;
+
+        public static void PollTakeoffLanding()
+        {
+            if (!Plugin.Callouts.Value) return;
+            if (!AudioPack.Loaded) return;
+            if (_fs == null || FsimAgl == float.MinValue) return;
+
+            float agl = FsimAgl;
+            float vy = FsimVy;
+            float spd = 0f;
+            try { if (_pf != null) spd = _pf.lastRenderVel.magnitude; } catch { }
+
+            bool airborne = agl > 5f;
+            bool onGround = agl < 1.5f;
+
+            // 离地瞬间：复位 V1 门闩 + 武装 RETARD
+            if (airborne && !_airborne)
+            {
+                _v1Latched = false;
+                _retardArmed = true;
+                Plugin.LogSource.LogInfo("[MaydayCallouts] 离地（AGL=" + agl.ToString("F0") + "）—— RETARD 已武装");
+            }
+            _airborne = airborne;
+
+            // V1 呼话（滑跑阶段）
+            if (onGround)
+            {
+                float now = UnityEngine.Time.unscaledTime;
+                if (now >= _nextSpdLog && spd > 1f)
+                {
+                    _nextSpdLog = now + 1f;
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 滑跑 SPD=" + spd.ToString("F1") + "（V1Speed=" + Plugin.V1Speed.Value.ToString("F0") + "）");
+                }
+                if (spd < 3f) _v1Latched = false; // 滑跑重新开始
+                if (Plugin.V1Speed.Value > 0f && !_v1Latched && spd >= Plugin.V1Speed.Value)
+                {
+                    _v1Latched = true;
+                    AudioPack.Play("v1");
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 起飞提示: V1（spd=" + spd.ToString("F0") + "）");
+                }
+            }
+
+            // RETARD 呼话（进近末段，A320 落地收油门提醒）
+            if (_retardArmed && agl < 15f && vy < -0.5f && !_retardLatched)
+            {
+                _retardLatched = true;
+                AudioPack.Play("callout_retard");
+                Plugin.LogSource.LogInfo("[MaydayCallouts] 着陆提示: RETARD（AGL=" + agl.ToString("F0") + " vy=" + vy.ToString("F1") + "）");
+            }
         }
 
         static void PollPanel()

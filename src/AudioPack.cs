@@ -167,14 +167,17 @@ namespace MaydayCallouts
 
         /// <summary>
         /// 被屏蔽的游戏原声接替播放：游戏侧同名音源存在时，屏蔽原声后由 mod 接管
-        /// （如游戏 ap_disconnect → 我们注册的波音 737 AP disconnect）。
+        /// （如游戏 ap_disconnect → 我们注册的波音/空客 AP disconnect）。
         /// </summary>
         public static void TryReplace(string gameId)
         {
             try
             {
                 if (!string.IsNullOrEmpty(gameId) && _clips.ContainsKey(gameId.ToLowerInvariant()))
+                {
                     Play(gameId.ToLowerInvariant());
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 已接替游戏原声: " + gameId + " → mod 音源");
+                }
             }
             catch { }
         }

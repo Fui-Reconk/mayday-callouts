@@ -119,16 +119,16 @@ namespace MaydayCallouts
                 if (Plugin.GpwsReplace.Value)
                 {
                     if (velY > -2f) _gpwsSinkLatched = false;
-                    if (velY > -3f) _gpwsPullupLatched = false;
                     if (velY < -5f && agl < 400f && !_gpwsSinkLatched)
                     {
-                        _gpwsSinkLatched = true;
+                        _gpwsSinkLatched = true; // sink_rate 每次俯冲事件报一次
                         AudioPack.Play("gpws_sink_rate");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: sink_rate（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");
                     }
-                    if (velY < -9f && agl < 400f && !_gpwsPullupLatched)
+                    // PULL UP：真机在俯冲持续期间每 ~2.5s 重报，直到改出
+                    if (velY < -9f && agl < 400f && UnityEngine.Time.unscaledTime >= _gpwsPullupNext)
                     {
-                        _gpwsPullupLatched = true;
+                        _gpwsPullupNext = UnityEngine.Time.unscaledTime + 2.5f;
                         _lastPullUpPlay = UnityEngine.Time.unscaledTime;
                         AudioPack.Play("gpws_pull_up");
                         Plugin.LogSource.LogInfo("[MaydayCallouts] GPWS: pull_up（AGL=" + agl.ToString("F0") + " vy=" + velY.ToString("F1") + "）");

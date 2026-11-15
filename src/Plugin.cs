@@ -45,6 +45,7 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> Callouts;
         internal static ConfigEntry<bool> GpwsReplace;
         internal static ConfigEntry<bool> TestAural;
+        internal static ConfigEntry<float> V1Speed;
         internal static ConfigEntry<string> SuppressSounds;
         internal static System.Collections.Generic.HashSet<string> _suppressSet;
 
@@ -122,6 +123,13 @@ namespace MaydayCallouts
                 "用 mod 的 gpws_sink_rate / gpws_pull_up 音源替换游戏自带的 gpws_pullup。\n" +
                 "开启后游戏原声被屏蔽（Play 前缀拦截），需在 Audio 目录提供这两个文件。");
 
+            V1Speed = Config.Bind(
+                "Callouts",
+                "V1Speed",
+                0f,
+                "起飞 V1 呼话速度阈值（0=关闭）。需在 Audio 目录提供 v1.wav。\n" +
+                "先飞一轮起飞，日志滑跑 SPD= 数值出来后按实际速度设（如滑跑峰值 55 就设 45）。");
+
             TestAural = Config.Bind(
                 "Debug",
                 "TestAural",
@@ -132,7 +140,7 @@ namespace MaydayCallouts
             SuppressSounds = Config.Bind(
                 "General",
                 "SuppressSounds",
-                "",
+                "ap_disconnect",
                 "屏蔽游戏原声清单（逗号分隔的音效 id，精确匹配）。\n" +
                 "被屏蔽的 id 游戏不再发声（Play/Play2D 拦截），由 mod 的音源接管。\n" +
                 "示例：ui_notify（通知提示音）、chime_seatbelt（安全带叮咚）。\n" +
@@ -142,6 +150,9 @@ namespace MaydayCallouts
             _suppressSet = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var s in SuppressSounds.Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                 _suppressSet.Add(s.Trim());
+            // 代码级强制屏蔽（不受 cfg 覆写影响）：AP 断开原声必拦，
+            // 拦截时 TryReplace 自动用注册的 mod 音源（波音/空客 AP disconnect）接替
+            _suppressSet.Add("ap_disconnect");
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
