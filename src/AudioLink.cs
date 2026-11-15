@@ -52,39 +52,46 @@ namespace MaydayCallouts
 
             if (Plugin.DumpSoundBank.Value && !_bankDumped && _service != null)
             {
-                _bankDumped = true;
+                // SoundBank 是懒加载的：启动早期 AllDefs 里全是 null，
+                // 等出现非空定义再转储（一次性，成功前每次轮询都试）
                 DumpBank();
             }
 
             PollTestKey();
         }
 
-        /// <summary>把 SoundBank 注册的全部音效 id 打进日志。</summary>
+        /// <summary>把 SoundBank 注册的全部音效 id 打进日志（定义未加载时不置完成位，等下次轮询）。</summary>
         static void DumpBank()
         {
             try
             {
                 var defs = global::Mayday.Audio.SoundBank.AllDefs;
-                if (defs == null) { Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank.AllDefs 为空"); return; }
+                if (defs == null) { Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank.AllDefs 为空"); _bankDumped = true; return; }
                 // Il2Cpp 的 IReadOnlyList 包装器不实现枚举/Count —— 转成 List 走索引
                 var list = defs.TryCast<Il2CppSystem.Collections.Generic.List<global::Mayday.Audio.SoundDef>>();
-                if (list == null) { Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank.AllDefs 无法转 List"); return; }
+                if (list == null) { Plugin.LogSource.LogInfo("[MaydayCallouts] SoundBank.AllDefs 无法转 List"); _bankDumped = true; return; }
                 var sb = new System.Text.StringBuilder("[MaydayCallouts] SoundBank 音效 id（共 ").Append(list.Count).Append(" 个）:");
+                int named = 0;
                 for (int i = 0; i < list.Count; i++)
                 {
                     var d = list[i];
                     if (d == null) continue;
                     string id = "";
                     try { id = d.id; } catch { }
+                    if (string.IsNullOrEmpty(id)) continue;
                     string cat = "";
                     try { cat = d.category.ToString(); } catch { }
                     sb.Append("\n  [").Append(i).Append("] ").Append(id).Append("（").Append(cat).Append("）");
+                    named++;
                 }
+                if (named == 0) return; // 定义还没懒加载完，等下次轮询再试
+                _bankDumped = true;
                 Plugin.LogSource.LogInfo(sb.ToString());
             }
             catch (Exception e)
             {
                 Plugin.LogSource.LogWarning("[MaydayCallouts] SoundBank 转储失败: " + e.Message);
+                _bankDumped = true;
             }
         }
 
