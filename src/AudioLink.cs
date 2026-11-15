@@ -108,11 +108,11 @@ namespace MaydayCallouts
             try
             {
                 var kb = UnityEngine.InputSystem.Keyboard.current;
-                if (kb != null && kb.pKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextTestAllowed)
+                if (kb != null && kb.oKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextTestAllowed)
                 {
                     _nextTestAllowed = UnityEngine.Time.unscaledTime + 0.5f;
                     _service.Play2D(id, Plugin.Volume.Value, 1f);
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] Play2D 试听: " + id);
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] Play2D 试听（按 O）: " + id);
                 }
             }
             catch (Exception e)
@@ -121,17 +121,17 @@ namespace MaydayCallouts
             }
         }
 
-        /// <summary>自测键：按 O 播 mod 自己的告警音（master_caution），定位播放链是否出声。</summary>
+        /// <summary>自测键：按 P 播 mod 自己的告警音（master_caution），定位播放链是否出声。</summary>
         static void PollSelfTest()
         {
             try
             {
                 var kb = UnityEngine.InputSystem.Keyboard.current;
-                if (kb != null && kb.oKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextSelfTest)
+                if (kb != null && kb.pKey.wasPressedThisFrame && UnityEngine.Time.unscaledTime >= _nextSelfTest)
                 {
                     _nextSelfTest = UnityEngine.Time.unscaledTime + 0.5f;
                     AudioPack.PlayOnce("master_caution");
-                    Plugin.LogSource.LogInfo("[MaydayCallouts] 自测播放: master_caution（按 O，mod 音源路径）");
+                    Plugin.LogSource.LogInfo("[MaydayCallouts] 自测播放: master_caution（按 P，mod 音源路径）");
                 }
             }
             catch { }
