@@ -21,6 +21,7 @@ namespace MaydayCallouts
             AudioLink.Tick();
             Probe.Tick(); // 内部有 250ms 节流门
             SoundRules.Tick(); // 告警音规则引擎（同样节流）
+            CalloutEngine.Tick(); // 高度呼话引擎
         }
 
         [HarmonyPostfix]
@@ -56,6 +57,20 @@ namespace MaydayCallouts
         private static void AlertPostfix(string key, double deadline, byte level)
         {
             Probe.OnAlert(key, deadline, level);
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play2D")]
+        private static bool Play2DPrefix(string id)
+        {
+            return !CalloutEngine.ShouldBlockSound(id);
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::Mayday.Audio.AudioService), "Play")]
+        private static bool PlayPrefix(string id)
+        {
+            return !CalloutEngine.ShouldBlockSound(id);
         }
 
         [HarmonyPostfix]

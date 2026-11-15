@@ -40,6 +40,8 @@ namespace MaydayCallouts
         internal static ConfigEntry<bool> AlarmMasterCaution;
         internal static ConfigEntry<bool> AlarmFuel;
         internal static ConfigEntry<bool> AlarmHull;
+        internal static ConfigEntry<bool> Callouts;
+        internal static ConfigEntry<bool> GpwsReplace;
 
         public override void Load()
         {
@@ -87,6 +89,21 @@ namespace MaydayCallouts
             AlarmMasterCaution = Config.Bind("Alarms", "MasterCaution", true, "主警告（任一发动机 faults 位图新增故障时单次）");
             AlarmFuel = Config.Bind("Alarms", "LowFuel", true, "低油量（任一油箱跨过 20%，回油复位）");
             AlarmHull = Config.Bind("Alarms", "Depressurize", true, "客舱释压（破洞数增加时单次）");
+
+            Callouts = Config.Bind(
+                "Callouts",
+                "Enabled",
+                true,
+                "高度呼话引擎：下降穿越 100/80/60/40/30/20/10 时播放 callout_XXX 音效，\n" +
+                "60 米（MinimumsHeight）报 callout_minimums。音源缺失的自动跳过。\n" +
+                "高度判定用游戏自己的 GroundProbeAgl，单位与游戏内部一致。");
+
+            GpwsReplace = Config.Bind(
+                "Callouts",
+                "ReplaceGameGpws",
+                false,
+                "用 mod 的 gpws_sink_rate / gpws_pull_up 音源替换游戏自带的 gpws_pullup。\n" +
+                "开启后游戏原声被屏蔽（Play 前缀拦截），需在 Audio 目录提供这两个文件。");
 
             var harmony = new Harmony(Guid);
             harmony.PatchAll(typeof(Plugin).Assembly);
